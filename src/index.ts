@@ -506,7 +506,10 @@ function assertAmountAndAssetMatch(
     typeof txAmount.issuer !== "string" ||
     typeof txAmount.value !== "string"
   ) {
-    throw new SettlementVerificationError("invalid_asset", "expected IOU issued amount");
+    throw new SettlementVerificationError(
+      "invalid_asset",
+      "expected IOU issued amount",
+    );
   }
 
   if (
