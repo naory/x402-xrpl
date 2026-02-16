@@ -1,11 +1,17 @@
 export const ADAPTER_VERSION = "0.1.0";
 export const RECEIPT_HEADER_NAME = "X-PAYMENT-RECEIPT";
 
-export const SUPPORTED_NETWORKS = ["xrpl:1", "xrpl:testnet", "xrpl:devnet"] as const;
+export const SUPPORTED_NETWORKS = [
+  "xrpl:1",
+  "xrpl:testnet",
+  "xrpl:devnet",
+] as const;
 export type XrplNetwork = (typeof SUPPORTED_NETWORKS)[number];
 
 export type SettlementErrorCode =
   | "expired_challenge"
+  | "invalid_challenge"
+  | "invalid_receipt"
   | "network_mismatch"
   | "invalid_amount"
   | "invalid_asset"
@@ -86,7 +92,9 @@ export interface XrplIssuedAmount {
 export interface XrplPaymentTransaction {
   validated: boolean;
   TransactionType: string;
+  Account?: string;
   Destination?: string;
+  DestinationTag?: number;
   Amount?: string | XrplIssuedAmount;
   Flags?: number;
   Memos?: XrplMemoContainer[];
@@ -95,10 +103,12 @@ export interface XrplPaymentTransaction {
   DeliverMin?: unknown;
 }
 
+export type FetchTransactionResult = XrplPaymentTransaction | null;
+
 export type FetchTransaction = (
   network: XrplNetwork,
   txHash: string,
-) => Promise<XrplPaymentTransaction | null>;
+) => Promise<FetchTransactionResult>;
 
 export interface ReplayStore {
   getTxHashByPaymentId(paymentId: string): string | undefined;
@@ -118,6 +128,7 @@ export interface VerifySettlementResult {
   ok: true;
   idempotent: boolean;
   receipt: X402Receipt;
+  payerAccount?: string;
 }
 
 const PARTIAL_PAYMENT_FLAG = 0x00020000;
@@ -166,16 +177,20 @@ export function createChallenge(params: {
   sessionId?: string;
 }): X402Challenge {
   assertSupportedNetwork(params.network);
-  assertDecimalAmount(params.amount);
-  assertFutureOrPresentISODate(params.expiresAt);
+  assertDecimalAmount(params.amount, "invalid_challenge");
+  assertFutureOrPresentISODate(params.expiresAt, "invalid_challenge");
 
   if (params.asset.kind === "IOU") {
-    assertNonEmpty(params.asset.currency, "asset.currency");
-    assertNonEmpty(params.asset.issuer, "asset.issuer");
+    assertNonEmpty(
+      params.asset.currency,
+      "asset.currency",
+      "invalid_challenge",
+    );
+    assertNonEmpty(params.asset.issuer, "asset.issuer", "invalid_challenge");
   }
 
-  assertNonEmpty(params.destination, "destination");
-  assertNonEmpty(params.paymentId, "paymentId");
+  assertNonEmpty(params.destination, "destination", "invalid_challenge");
+  assertNonEmpty(params.paymentId, "paymentId", "invalid_challenge");
 
   return {
     version: "2",
@@ -195,35 +210,53 @@ export function createChallenge(params: {
 
 export function encodeReceiptHeader(receipt: X402Receipt): string {
   assertSupportedNetwork(receipt.network);
-  assertNonEmpty(receipt.txHash, "txHash");
-  assertNonEmpty(receipt.paymentId, "paymentId");
-  return asciiToBase64(JSON.stringify(receipt));
+  assertNonEmpty(receipt.txHash, "txHash", "invalid_receipt");
+  assertNonEmpty(receipt.paymentId, "paymentId", "invalid_receipt");
+  return utf8ToBase64(JSON.stringify(receipt));
 }
 
 export function decodeReceiptHeader(receiptHeaderValue: string): X402Receipt {
   let decoded: unknown;
   try {
-    decoded = JSON.parse(base64ToAscii(receiptHeaderValue));
+    decoded = JSON.parse(base64ToUtf8(receiptHeaderValue));
   } catch {
-    throw new SettlementVerificationError("invalid_memo", "receipt header is not valid base64 JSON");
+    throw new SettlementVerificationError(
+      "invalid_receipt",
+      "receipt header is not valid base64 JSON",
+    );
   }
 
   if (typeof decoded !== "object" || decoded === null) {
-    throw new SettlementVerificationError("invalid_memo", "receipt payload must be an object");
+    throw new SettlementVerificationError(
+      "invalid_receipt",
+      "receipt payload must be an object",
+    );
   }
 
   const maybe = decoded as Partial<X402Receipt>;
   if (typeof maybe.network !== "string") {
-    throw new SettlementVerificationError("network_mismatch", "receipt.network is required");
+    throw new SettlementVerificationError(
+      "network_mismatch",
+      "receipt.network is required",
+    );
   }
   if (!isSupportedNetwork(maybe.network)) {
-    throw new SettlementVerificationError("network_mismatch", "receipt.network is not supported");
+    throw new SettlementVerificationError(
+      "network_mismatch",
+      "receipt.network is not supported",
+    );
   }
   if (typeof maybe.txHash !== "string" || maybe.txHash.length === 0) {
-    throw new SettlementVerificationError("tx_not_found", "receipt.txHash is required");
+    throw new SettlementVerificationError(
+      "tx_not_found",
+      "receipt.txHash is required",
+    );
   }
   if (typeof maybe.paymentId !== "string" || maybe.paymentId.length === 0) {
-    throw new SettlementVerificationError("invalid_memo", "receipt.paymentId is required");
+    throw new SettlementVerificationError(
+      "invalid_receipt",
+      "receipt.paymentId is required",
+    );
   }
 
   return {
@@ -233,7 +266,9 @@ export function decodeReceiptHeader(receiptHeaderValue: string): X402Receipt {
   };
 }
 
-export function buildXrplMemo(challenge: Pick<X402Challenge, "paymentId" | "memo">): XrplMemoContainer {
+export function buildXrplMemo(
+  challenge: Pick<X402Challenge, "paymentId" | "memo">,
+): XrplMemoContainer {
   const memoData: X402MemoData = {
     v: 1,
     t: "x402",
@@ -261,44 +296,100 @@ export async function verifySettlement(
   const receipt = decodeReceiptHeader(params.receiptHeaderValue);
 
   if (receipt.network !== params.challenge.network) {
-    throw new SettlementVerificationError("network_mismatch", "receipt network does not match challenge network");
+    throw new SettlementVerificationError(
+      "network_mismatch",
+      "receipt network does not match challenge network",
+    );
   }
   if (receipt.paymentId !== params.challenge.paymentId) {
-    throw new SettlementVerificationError("invalid_memo", "receipt paymentId does not match challenge paymentId");
+    throw new SettlementVerificationError(
+      "invalid_receipt",
+      "receipt paymentId does not match challenge paymentId",
+    );
   }
 
-  const existingTxHash = params.replayStore.getTxHashByPaymentId(params.challenge.paymentId);
+  const existingTxHash = params.replayStore.getTxHashByPaymentId(
+    params.challenge.paymentId,
+  );
   if (existingTxHash !== undefined && existingTxHash !== receipt.txHash) {
-    throw new SettlementVerificationError("replay_detected", "paymentId already used with a different txHash");
+    throw new SettlementVerificationError(
+      "replay_detected",
+      "paymentId already used with a different txHash",
+    );
   }
 
-  const existingPaymentId = params.replayStore.getPaymentIdByTxHash(receipt.txHash);
-  if (existingPaymentId !== undefined && existingPaymentId !== params.challenge.paymentId) {
-    throw new SettlementVerificationError("replay_detected", "txHash already used for a different paymentId");
+  const existingPaymentId = params.replayStore.getPaymentIdByTxHash(
+    receipt.txHash,
+  );
+  if (
+    existingPaymentId !== undefined &&
+    existingPaymentId !== params.challenge.paymentId
+  ) {
+    throw new SettlementVerificationError(
+      "replay_detected",
+      "txHash already used for a different paymentId",
+    );
   }
 
-  if (existingTxHash === receipt.txHash && existingPaymentId === params.challenge.paymentId) {
+  if (
+    existingTxHash === receipt.txHash &&
+    existingPaymentId === params.challenge.paymentId
+  ) {
     return { ok: true, idempotent: true, receipt };
   }
 
-  const tx = await params.fetchTransaction(params.challenge.network, receipt.txHash);
+  const tx = await params.fetchTransaction(
+    params.challenge.network,
+    receipt.txHash,
+  );
   if (tx === null) {
-    throw new SettlementVerificationError("tx_not_found", "transaction not found");
+    throw new SettlementVerificationError(
+      "tx_not_found",
+      "transaction not found",
+    );
   }
 
   if (!tx.validated || tx.TransactionType !== "Payment") {
-    throw new SettlementVerificationError("tx_not_validated", "transaction is not a validated Payment");
+    throw new SettlementVerificationError(
+      "tx_not_validated",
+      "transaction is not a validated Payment",
+    );
+  }
+  if (typeof tx.Account !== "string" || tx.Account.trim().length === 0) {
+    throw new SettlementVerificationError(
+      "invalid_receipt",
+      "transaction Account (payer address) is required",
+    );
   }
 
   if (tx.Destination !== params.challenge.destination) {
-    throw new SettlementVerificationError("invalid_destination", "transaction destination does not match challenge");
+    throw new SettlementVerificationError(
+      "invalid_destination",
+      "transaction destination does not match challenge",
+    );
+  }
+  if (tx.DestinationTag !== undefined) {
+    throw new SettlementVerificationError(
+      "invalid_destination",
+      "DestinationTag is not supported in v1 safe mode",
+    );
   }
 
   if ((tx.Flags ?? 0) & PARTIAL_PAYMENT_FLAG) {
-    throw new SettlementVerificationError("invalid_asset", "partial payment flag is not allowed");
+    throw new SettlementVerificationError(
+      "invalid_asset",
+      "partial payment flag is not allowed",
+    );
   }
-  if (tx.Paths !== undefined || tx.SendMax !== undefined || tx.DeliverMin !== undefined) {
-    throw new SettlementVerificationError("invalid_asset", "path payment fields are not allowed in v1");
+  if (
+    tx.Paths !== undefined ||
+    tx.SendMax !== undefined ||
+    tx.DeliverMin !== undefined
+  ) {
+    throw new SettlementVerificationError(
+      "invalid_asset",
+      "path payment fields are not allowed in v1",
+    );
   }
 
   assertAmountAndAssetMatch(params.challenge, tx.Amount);
@@ -310,6 +401,7 @@ export async function verifySettlement(
     ok: true,
     idempotent: false,
     receipt,
+    payerAccount: tx.Account,
   };
 }
 
@@ -317,33 +409,67 @@ function validateChallenge(challenge: X402Challenge): void {
   assertSupportedNetwork(challenge.network);
 
   if (challenge.version !== "2") {
-    throw new SettlementVerificationError("invalid_memo", "challenge.version must be 2");
+    throw new SettlementVerificationError(
+      "invalid_challenge",
+      "challenge.version must be 2",
+    );
   }
-  assertDecimalAmount(challenge.amount);
-  assertNonEmpty(challenge.destination, "challenge.destination");
-  assertNonEmpty(challenge.paymentId, "challenge.paymentId");
+  assertDecimalAmount(challenge.amount, "invalid_challenge");
+  assertNonEmpty(
+    challenge.destination,
+    "challenge.destination",
+    "invalid_challenge",
+  );
+  assertNonEmpty(
+    challenge.paymentId,
+    "challenge.paymentId",
+    "invalid_challenge",
+  );
 
   if (challenge.asset.kind === "IOU") {
-    assertNonEmpty(challenge.asset.currency, "challenge.asset.currency");
-    assertNonEmpty(challenge.asset.issuer, "challenge.asset.issuer");
+    assertNonEmpty(
+      challenge.asset.currency,
+      "challenge.asset.currency",
+      "invalid_challenge",
+    );
+    assertNonEmpty(
+      challenge.asset.issuer,
+      "challenge.asset.issuer",
+      "invalid_challenge",
+    );
   }
 
   if (challenge.memo.format !== "x402") {
-    throw new SettlementVerificationError("invalid_memo", "challenge.memo.format must be x402");
+    throw new SettlementVerificationError(
+      "invalid_challenge",
+      "challenge.memo.format must be x402",
+    );
   }
   if (challenge.memo.paymentId !== challenge.paymentId) {
-    throw new SettlementVerificationError("invalid_memo", "challenge.memo.paymentId must match challenge.paymentId");
+    throw new SettlementVerificationError(
+      "invalid_challenge",
+      "challenge.memo.paymentId must match challenge.paymentId",
+    );
   }
-  assertFutureOrPresentISODate(challenge.expiresAt);
+  assertFutureOrPresentISODate(challenge.expiresAt, "invalid_challenge");
 }
 
-function validateChallengeNotExpired(challenge: X402Challenge, now: Date): void {
+function validateChallengeNotExpired(
+  challenge: X402Challenge,
+  now: Date,
+): void {
   const expiresAt = new Date(challenge.expiresAt);
   if (Number.isNaN(expiresAt.getTime())) {
-    throw new SettlementVerificationError("expired_challenge", "challenge.expiresAt is not valid ISO-8601");
+    throw new SettlementVerificationError(
+      "invalid_challenge",
+      "challenge.expiresAt is not valid ISO-8601",
+    );
   }
   if (now.getTime() > expiresAt.getTime()) {
-    throw new SettlementVerificationError("expired_challenge", "challenge has expired");
+    throw new SettlementVerificationError(
+      "expired_challenge",
+      "challenge has expired",
+    );
   }
 }
 
@@ -355,11 +481,17 @@ function assertAmountAndAssetMatch(
 
   if (challenge.asset.kind === "XRP") {
     if (typeof txAmount !== "string") {
-      throw new SettlementVerificationError("invalid_asset", "expected XRP amount in drops string form");
+      throw new SettlementVerificationError(
+        "invalid_asset",
+        "expected XRP amount in drops string form",
+      );
     }
     const actualXrpAmount = normalizeDecimal(dropsToXrp(txAmount));
     if (actualXrpAmount !== expectedAmount) {
-      throw new SettlementVerificationError("invalid_amount", "XRP amount does not match challenge amount");
+      throw new SettlementVerificationError(
+        "invalid_amount",
+        "XRP amount does not match challenge amount",
+      );
     }
     return;
   }
@@ -371,22 +503,40 @@ function assertAmountAndAssetMatch(
     typeof txAmount.issuer !== "string" ||
     typeof txAmount.value !== "string"
   ) {
-    throw new SettlementVerificationError("invalid_asset", "expected IOU issued amount");
+    throw new SettlementVerificationError(
+      "invalid_asset",
+      "expected IOU issued amount",
+    );
   }
 
-  if (txAmount.currency !== challenge.asset.currency || txAmount.issuer !== challenge.asset.issuer) {
-    throw new SettlementVerificationError("invalid_asset", "IOU currency/issuer does not match challenge");
+  if (
+    txAmount.currency !== challenge.asset.currency ||
+    txAmount.issuer !== challenge.asset.issuer
+  ) {
+    throw new SettlementVerificationError(
+      "invalid_asset",
+      "IOU currency/issuer does not match challenge",
+    );
   }
 
   const actualIouAmount = normalizeDecimal(txAmount.value);
   if (actualIouAmount !== expectedAmount) {
-    throw new SettlementVerificationError("invalid_amount", "IOU amount does not match challenge amount");
+    throw new SettlementVerificationError(
+      "invalid_amount",
+      "IOU amount does not match challenge amount",
+    );
   }
 }
 
-function assertMemoMatches(memos: XrplMemoContainer[] | undefined, paymentId: string): void {
+function assertMemoMatches(
+  memos: XrplMemoContainer[] | undefined,
+  paymentId: string,
+): void {
   if (memos === undefined || memos.length === 0) {
-    throw new SettlementVerificationError("invalid_memo", "transaction memo is required");
+    throw new SettlementVerificationError(
+      "invalid_memo",
+      "transaction memo is required",
+    );
   }
 
   for (const memoContainer of memos) {
@@ -399,7 +549,11 @@ function assertMemoMatches(memos: XrplMemoContainer[] | undefined, paymentId: st
     const memoFormat = decodeMemoField(memo.MemoFormat);
     const memoData = decodeMemoField(memo.MemoData);
 
-    if (memoType !== "x402" || memoFormat !== "application/json" || memoData === "") {
+    if (
+      memoType !== "x402" ||
+      memoFormat !== "application/json" ||
+      memoData === ""
+    ) {
       continue;
     }
 
@@ -414,39 +568,70 @@ function assertMemoMatches(memos: XrplMemoContainer[] | undefined, paymentId: st
         return;
       }
     } catch {
-      throw new SettlementVerificationError("invalid_memo", "memo JSON is malformed");
+      throw new SettlementVerificationError(
+        "invalid_memo",
+        "memo JSON is malformed",
+      );
     }
   }
 
-  throw new SettlementVerificationError("invalid_memo", "no valid x402 memo found with matching paymentId");
+  throw new SettlementVerificationError(
+    "invalid_memo",
+    "no valid x402 memo found with matching paymentId",
+  );
 }
 
 function isSupportedNetwork(value: string): value is XrplNetwork {
   return (SUPPORTED_NETWORKS as readonly string[]).includes(value);
 }
 
-function assertSupportedNetwork(network: string): asserts network is XrplNetwork {
+function assertSupportedNetwork(
+  network: string,
+): asserts network is XrplNetwork {
   if (!isSupportedNetwork(network)) {
-    throw new SettlementVerificationError("network_mismatch", `unsupported network: ${network}`);
+    throw new SettlementVerificationError(
+      "network_mismatch",
+      `unsupported network: ${network}`,
+    );
   }
 }
 
-function assertFutureOrPresentISODate(value: string): void {
+function assertFutureOrPresentISODate(
+  value: string,
+  errorCode: SettlementErrorCode = "invalid_challenge",
+): void {
   const date = new Date(value);
-  if (Number.isNaN(date.getTime()) || !value.includes("T") || !value.endsWith("Z")) {
-    throw new SettlementVerificationError("expired_challenge", "expiresAt must be an ISO-8601 UTC timestamp");
+  if (
+    Number.isNaN(date.getTime()) ||
+    !value.includes("T") ||
+    !value.endsWith("Z")
+  ) {
+    throw new SettlementVerificationError(
+      errorCode,
+      "expiresAt must be an ISO-8601 UTC timestamp",
+    );
   }
 }
 
-function assertDecimalAmount(value: string): void {
+function assertDecimalAmount(
+  value: string,
+  errorCode: SettlementErrorCode = "invalid_amount",
+): void {
   if (!/^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(value)) {
-    throw new SettlementVerificationError("invalid_amount", `invalid decimal amount: ${value}`);
+    throw new SettlementVerificationError(
+      errorCode,
+      `invalid decimal amount: ${value}`,
+    );
   }
 }
 
-function assertNonEmpty(value: string, field: string): void {
+function assertNonEmpty(
+  value: string,
+  field: string,
+  errorCode: SettlementErrorCode = "invalid_challenge",
+): void {
   if (value.trim().length === 0) {
-    throw new SettlementVerificationError("invalid_memo", `${field} is required`);
+    throw new SettlementVerificationError(errorCode, `${field} is required`);
   }
 }
 
@@ -460,7 +645,10 @@ function normalizeDecimal(value: string): string {
 
 function dropsToXrp(drops: string): string {
   if (!/^\d+$/.test(drops)) {
-    throw new SettlementVerificationError("invalid_amount", "XRP drops amount must be an unsigned integer string");
+    throw new SettlementVerificationError(
+      "invalid_amount",
+      "XRP drops amount must be an unsigned integer string",
+    );
   }
 
   const padded = drops.padStart(7, "0");
@@ -478,7 +666,10 @@ function decodeMemoField(value: string | undefined): string {
     try {
       return hexToUtf8(value);
     } catch {
-      throw new SettlementVerificationError("invalid_memo", "memo field contains invalid hex");
+      throw new SettlementVerificationError(
+        "invalid_memo",
+        "memo field contains invalid hex",
+      );
     }
   }
 
@@ -502,10 +693,10 @@ function hexToUtf8(hex: string): string {
   return new TextDecoder().decode(bytes);
 }
 
-function asciiToBase64(input: string): string {
-  return btoa(input);
+function utf8ToBase64(input: string): string {
+  return Buffer.from(input, "utf8").toString("base64");
 }
 
-function base64ToAscii(input: string): string {
-  return atob(input);
+function base64ToUtf8(input: string): string {
+  return Buffer.from(input, "base64").toString("utf8");
 }

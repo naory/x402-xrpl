@@ -13,7 +13,9 @@ pnpm dev
 
 - `pnpm dev` — run `src/index.ts` with `tsx`
 - `pnpm build` — compile TypeScript to `dist/`
-- `pnpm test` — placeholder
+- `pnpm format` — format all files with Prettier
+- `pnpm format:check` — verify formatting without writing changes
+- `pnpm test` — run settlement adapter tests
 
 ## Usage example
 
