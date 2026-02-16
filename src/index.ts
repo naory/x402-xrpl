@@ -150,7 +150,7 @@ export class InMemoryReplayStore implements ReplayStore {
     if (existingTxHash !== undefined && existingTxHash !== txHash) {
       throw new SettlementVerificationError(
         "replay_detected",
-        "paymentId already used with a different transaction hash",
+        "replay_detected: paymentId used with different txHash",
       );
     }
 
@@ -158,7 +158,7 @@ export class InMemoryReplayStore implements ReplayStore {
     if (existingPaymentId !== undefined && existingPaymentId !== paymentId) {
       throw new SettlementVerificationError(
         "replay_detected",
-        "transaction hash already used by a different paymentId",
+        "replay_detected: txHash used with different paymentId",
       );
     }
 
@@ -236,19 +236,19 @@ export function decodeReceiptHeader(receiptHeaderValue: string): X402Receipt {
   const maybe = decoded as Partial<X402Receipt>;
   if (typeof maybe.network !== "string") {
     throw new SettlementVerificationError(
-      "network_mismatch",
+      "invalid_receipt",
       "receipt.network is required",
     );
   }
   if (!isSupportedNetwork(maybe.network)) {
     throw new SettlementVerificationError(
-      "network_mismatch",
+      "invalid_receipt",
       "receipt.network is not supported",
     );
   }
   if (typeof maybe.txHash !== "string" || maybe.txHash.length === 0) {
     throw new SettlementVerificationError(
-      "tx_not_found",
+      "invalid_receipt",
       "receipt.txHash is required",
     );
   }
@@ -298,13 +298,13 @@ export async function verifySettlement(
   if (receipt.network !== params.challenge.network) {
     throw new SettlementVerificationError(
       "network_mismatch",
-      "receipt network does not match challenge network",
+      "receipt.network does not match challenge.network",
     );
   }
   if (receipt.paymentId !== params.challenge.paymentId) {
     throw new SettlementVerificationError(
       "invalid_receipt",
-      "receipt paymentId does not match challenge paymentId",
+      "receipt.paymentId does not match challenge.paymentId",
     );
   }
 
@@ -314,7 +314,7 @@ export async function verifySettlement(
   if (existingTxHash !== undefined && existingTxHash !== receipt.txHash) {
     throw new SettlementVerificationError(
       "replay_detected",
-      "paymentId already used with a different txHash",
+      "replay_detected: paymentId used with different txHash",
     );
   }
 
@@ -327,7 +327,7 @@ export async function verifySettlement(
   ) {
     throw new SettlementVerificationError(
       "replay_detected",
-      "txHash already used for a different paymentId",
+      "replay_detected: txHash used with different paymentId",
     );
   }
 
@@ -358,7 +358,7 @@ export async function verifySettlement(
   if (typeof tx.Account !== "string" || tx.Account.trim().length === 0) {
     throw new SettlementVerificationError(
       "invalid_receipt",
-      "transaction Account (payer address) is required",
+      "tx.Account (payer address) is required",
     );
   }
 
@@ -378,7 +378,7 @@ export async function verifySettlement(
   if ((tx.Flags ?? 0) & PARTIAL_PAYMENT_FLAG) {
     throw new SettlementVerificationError(
       "invalid_asset",
-      "partial payment flag is not allowed",
+      "partial payment flag is not allowed in v1",
     );
   }
   if (
@@ -388,7 +388,7 @@ export async function verifySettlement(
   ) {
     throw new SettlementVerificationError(
       "invalid_asset",
-      "path payment fields are not allowed in v1",
+      "path payment fields (Paths/SendMax/DeliverMin) are not allowed in v1",
     );
   }
 
@@ -477,7 +477,8 @@ function assertAmountAndAssetMatch(
   challenge: Pick<X402Challenge, "asset" | "amount">,
   txAmount: XrplPaymentTransaction["Amount"],
 ): void {
-  const expectedAmount = normalizeDecimal(challenge.amount);
+  // Challenge amounts are stored as normalized decimal strings.
+  const expected = challenge.amount;
 
   if (challenge.asset.kind === "XRP") {
     if (typeof txAmount !== "string") {
@@ -486,13 +487,15 @@ function assertAmountAndAssetMatch(
         "expected XRP amount in drops string form",
       );
     }
-    const actualXrpAmount = normalizeDecimal(dropsToXrp(txAmount));
-    if (actualXrpAmount !== expectedAmount) {
+
+    const expectedDrops = xrpToDrops(expected);
+    if (txAmount !== expectedDrops) {
       throw new SettlementVerificationError(
         "invalid_amount",
-        "XRP amount does not match challenge amount",
+        "XRP amount (drops) does not match challenge amount",
       );
     }
+
     return;
   }
 
@@ -503,10 +506,7 @@ function assertAmountAndAssetMatch(
     typeof txAmount.issuer !== "string" ||
     typeof txAmount.value !== "string"
   ) {
-    throw new SettlementVerificationError(
-      "invalid_asset",
-      "expected IOU issued amount",
-    );
+    throw new SettlementVerificationError("invalid_asset", "expected IOU issued amount");
   }
 
   if (
@@ -519,8 +519,8 @@ function assertAmountAndAssetMatch(
     );
   }
 
-  const actualIouAmount = normalizeDecimal(txAmount.value);
-  if (actualIouAmount !== expectedAmount) {
+  // v1 strict mode: exact string equality (no normalization beyond challenge normalization).
+  if (txAmount.value !== expected) {
     throw new SettlementVerificationError(
       "invalid_amount",
       "IOU amount does not match challenge amount",
@@ -547,7 +547,20 @@ function assertMemoMatches(
 
     const memoType = decodeMemoField(memo.MemoType);
     const memoFormat = decodeMemoField(memo.MemoFormat);
-    const memoData = decodeMemoField(memo.MemoData);
+    const memoDataHex = memo.MemoData;
+    if (memoDataHex === undefined || memoDataHex.length === 0) {
+      continue;
+    }
+
+    let memoData: string;
+    try {
+      memoData = hexToUtf8(memoDataHex);
+    } catch {
+      throw new SettlementVerificationError(
+        "invalid_memo",
+        "MemoData must be hex-encoded UTF-8 JSON",
+      );
+    }
 
     if (
       memoType !== "x402" ||
@@ -641,6 +654,25 @@ function normalizeDecimal(value: string): string {
   const integer = rawInteger.replace(/^0+(?=\d)/, "") || "0";
   const fraction = rawFraction?.replace(/0+$/, "") ?? "";
   return fraction.length > 0 ? `${integer}.${fraction}` : integer;
+}
+
+function xrpToDrops(xrp: string): string {
+  // xrp is a normalized decimal string from normalizeDecimal / createChallenge
+  assertDecimalAmount(xrp, "invalid_amount");
+
+  const [rawInteger, rawFraction = ""] = xrp.split(".");
+  const integer = rawInteger.replace(/^0+(?=\d)/, "") || "0";
+
+  if (rawFraction.length > 6) {
+    throw new SettlementVerificationError(
+      "invalid_amount",
+      "XRP amount must have at most 6 decimal places",
+    );
+  }
+
+  const fractionPadded = rawFraction.padEnd(6, "0");
+  const drops = (integer + fractionPadded).replace(/^0+(?=\d)/, "") || "0";
+  return drops;
 }
 
 function dropsToXrp(drops: string): string {
