@@ -12,7 +12,7 @@ pnpm dev
 ## Scripts
 
 - `pnpm dev` — run `src/index.ts` with `tsx`
-- `pnpm build` — compile TypeScript to `dist/`
+- `pnpm build` — bundle and emit types to `dist/` with `tsup`
 - `pnpm format` — format all files with Prettier
 - `pnpm format:check` — verify formatting without writing changes
 - `pnpm test` — run settlement adapter tests
