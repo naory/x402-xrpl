@@ -1,6 +1,6 @@
 {
   "name": "@naory/x402-xrpl",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": false,
   "description": "TypeScript x402 v2 adapter for XRPL: issue challenges, build payment memos, verify on-ledger settlement, replay-safe.",
   "license": "MIT",
