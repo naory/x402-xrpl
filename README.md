@@ -1,6 +1,42 @@
-# x402-xrpl
+# x402-xrpl-settlement-adapter
 
-Standalone project scaffold for experimenting with x402 flows on XRPL.
+Strict **server-side settlement verifier** for x402 v2 on XRPL.
+
+This package verifies that a client actually fulfilled an x402 Payment Required challenge on the XRP Ledger. It is designed for backend services that need strong guarantees around on-ledger settlement.
+
+Unlike generic SDKs, this adapter focuses on **security and determinism**, enforcing:
+
+- Exact amount matching (XRP drops or IOU value)
+- Exact currency + issuer matching (for IOUs / RLUSD)
+- Memo binding to `paymentId`
+- Replay protection (paymentId ↔ txHash invariant)
+- Rejection of partial payments
+- Rejection of path payments (Paths / SendMax / DeliverMin)
+- Safe-mode enforcement (no DestinationTag support)
+
+---
+
+## What This Is
+
+A strict verification layer that turns an XRPL `Payment` transaction into a validated x402 settlement receipt.
+
+Designed for:
+
+- API gateways
+- Payment middleware
+- Backend services issuing x402 challenges
+- Infrastructure providers integrating XRPL as a settlement layer
+
+---
+
+## What This Is NOT
+
+- Not a wallet SDK
+- Not a signing library
+- Not a presigned transaction builder
+- Not a client-side payment helper
+
+This is the server-side enforcement layer.
 
 ## Quick start
 

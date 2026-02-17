@@ -1,18 +1,24 @@
 {
   "name": "x402-xrpl-settlement-adapter",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "private": false,
   "description": "TypeScript x402 v2 settlement adapter for XRPL: issue challenges, build payment memos, verify on-ledger settlement, replay-safe.",
   "license": "MIT",
   "keywords": [
     "x402",
+    "x402 v2",
     "xrpl",
+    "xrp",
     "rlusd",
     "http-402",
     "payment-required",
     "settlement",
-    "adapter",
-    "ripple"
+    "verification",
+    "verifier",
+    "server",
+    "middleware",
+    "replay-protection",
+    "receipt"
   ],
   "repository": {
     "type": "git",
