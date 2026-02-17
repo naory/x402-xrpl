@@ -1,8 +1,8 @@
 {
-  "name": "x402-xrpl-adapter",
+  "name": "x402-xrpl-settlement-adapter",
   "version": "0.1.2",
   "private": false,
-  "description": "TypeScript x402 v2 adapter for XRPL: issue challenges, build payment memos, verify on-ledger settlement, replay-safe.",
+  "description": "TypeScript x402 v2 settlement adapter for XRPL: issue challenges, build payment memos, verify on-ledger settlement, replay-safe.",
   "license": "MIT",
   "keywords": [
     "x402",
