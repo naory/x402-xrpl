@@ -2,7 +2,26 @@
   "name": "@naory/x402-xrpl",
   "version": "0.1.0",
   "private": false,
-  "description": "Standalone sandbox for x402 + XRPL experiments",
+  "description": "TypeScript x402 v2 adapter for XRPL: issue challenges, build payment memos, verify on-ledger settlement, replay-safe.",
+  "license": "MIT",
+  "keywords": [
+    "x402",
+    "xrpl",
+    "rlusd",
+    "http-402",
+    "payment-required",
+    "settlement",
+    "adapter",
+    "ripple"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/naory/x402-xrpl.git"
+  },
+  "bugs": {
+    "url": "https://github.com/naory/x402-xrpl/issues"
+  },
+  "homepage": "https://github.com/naory/x402-xrpl#readme",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
