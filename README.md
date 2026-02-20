@@ -18,7 +18,7 @@ Unlike generic SDKs, this adapter focuses on **security and determinism**, enfor
 
 ## What This Is
 
-A strict verification layer that turns an XRPL `Payment` transaction into a validated x402 settlement receipt.
+Strict server-side settlement verifier for x402 v2 payments on XRPL (XRP & issued tokens such as RLUSD). Validates presigned XRPL Payment transactions and enforces deterministic settlement rules for HTTP 402 flows.
 
 Designed for:
 
