@@ -1,0 +1,278 @@
+{
+  "version": "1",
+  "cases": [
+    {
+      "id": "xrp_happy_path",
+      "description": "XRP payment validates successfully",
+      "challenge": {
+        "network": "xrpl:testnet",
+        "amount": "2.5",
+        "asset": { "kind": "XRP" },
+        "destination": "rDEST-A",
+        "expiresAt": "2099-01-01T00:00:00Z",
+        "paymentId": "VEC-XRP-OK"
+      },
+      "steps": [
+        {
+          "receipt": { "network": "xrpl:testnet", "txHash": "TX-XRP-OK", "paymentId": "VEC-XRP-OK" },
+          "txByHash": {
+            "TX-XRP-OK": {
+              "validated": true,
+              "TransactionType": "Payment",
+              "Account": "rPAYER-A",
+              "Destination": "rDEST-A",
+              "Amount": "2500000",
+              "memoPaymentId": "VEC-XRP-OK"
+            }
+          },
+          "expect": { "ok": true, "idempotent": false }
+        }
+      ]
+    },
+    {
+      "id": "iou_happy_path",
+      "description": "IOU payment validates successfully",
+      "challenge": {
+        "network": "xrpl:testnet",
+        "amount": "10.25",
+        "asset": { "kind": "IOU", "currency": "RLUSD", "issuer": "rISSUER" },
+        "destination": "rDEST-B",
+        "expiresAt": "2099-01-01T00:00:00Z",
+        "paymentId": "VEC-IOU-OK"
+      },
+      "steps": [
+        {
+          "receipt": { "network": "xrpl:testnet", "txHash": "TX-IOU-OK", "paymentId": "VEC-IOU-OK" },
+          "txByHash": {
+            "TX-IOU-OK": {
+              "validated": true,
+              "TransactionType": "Payment",
+              "Account": "rPAYER-B",
+              "Destination": "rDEST-B",
+              "Amount": { "currency": "RLUSD", "issuer": "rISSUER", "value": "10.25" },
+              "memoPaymentId": "VEC-IOU-OK"
+            }
+          },
+          "expect": { "ok": true, "idempotent": false }
+        }
+      ]
+    },
+    {
+      "id": "replay_same_payment_same_tx",
+      "description": "Same paymentId and txHash is idempotent success",
+      "challenge": {
+        "network": "xrpl:testnet",
+        "amount": "1.0",
+        "asset": { "kind": "XRP" },
+        "destination": "rDEST-C",
+        "expiresAt": "2099-01-01T00:00:00Z",
+        "paymentId": "VEC-REPLAY-SAME"
+      },
+      "steps": [
+        {
+          "receipt": { "network": "xrpl:testnet", "txHash": "TX-REPLAY-SAME", "paymentId": "VEC-REPLAY-SAME" },
+          "txByHash": {
+            "TX-REPLAY-SAME": {
+              "validated": true,
+              "TransactionType": "Payment",
+              "Account": "rPAYER-C",
+              "Destination": "rDEST-C",
+              "Amount": "1000000",
+              "memoPaymentId": "VEC-REPLAY-SAME"
+            }
+          },
+          "expect": { "ok": true, "idempotent": false }
+        },
+        {
+          "receipt": { "network": "xrpl:testnet", "txHash": "TX-REPLAY-SAME", "paymentId": "VEC-REPLAY-SAME" },
+          "txByHash": {
+            "TX-REPLAY-SAME": {
+              "validated": true,
+              "TransactionType": "Payment",
+              "Account": "rPAYER-C",
+              "Destination": "rDEST-C",
+              "Amount": "1000000",
+              "memoPaymentId": "VEC-REPLAY-SAME"
+            }
+          },
+          "expect": { "ok": true, "idempotent": true }
+        }
+      ]
+    },
+    {
+      "id": "replay_same_payment_different_tx",
+      "description": "Same paymentId with different txHash is rejected",
+      "challenge": {
+        "network": "xrpl:testnet",
+        "amount": "1.0",
+        "asset": { "kind": "XRP" },
+        "destination": "rDEST-D",
+        "expiresAt": "2099-01-01T00:00:00Z",
+        "paymentId": "VEC-REPLAY-DIFF"
+      },
+      "steps": [
+        {
+          "receipt": { "network": "xrpl:testnet", "txHash": "TX-REPLAY-A", "paymentId": "VEC-REPLAY-DIFF" },
+          "txByHash": {
+            "TX-REPLAY-A": {
+              "validated": true,
+              "TransactionType": "Payment",
+              "Account": "rPAYER-D",
+              "Destination": "rDEST-D",
+              "Amount": "1000000",
+              "memoPaymentId": "VEC-REPLAY-DIFF"
+            }
+          },
+          "expect": { "ok": true, "idempotent": false }
+        },
+        {
+          "receipt": { "network": "xrpl:testnet", "txHash": "TX-REPLAY-B", "paymentId": "VEC-REPLAY-DIFF" },
+          "txByHash": {
+            "TX-REPLAY-B": {
+              "validated": true,
+              "TransactionType": "Payment",
+              "Account": "rPAYER-D",
+              "Destination": "rDEST-D",
+              "Amount": "1000000",
+              "memoPaymentId": "VEC-REPLAY-DIFF"
+            }
+          },
+          "expect": { "errorCode": "replay_detected" }
+        }
+      ]
+    },
+    {
+      "id": "wrong_memo_payment_id",
+      "description": "Mismatched memo paymentId is rejected",
+      "challenge": {
+        "network": "xrpl:testnet",
+        "amount": "2.5",
+        "asset": { "kind": "XRP" },
+        "destination": "rDEST-E",
+        "expiresAt": "2099-01-01T00:00:00Z",
+        "paymentId": "VEC-MEMO"
+      },
+      "steps": [
+        {
+          "receipt": { "network": "xrpl:testnet", "txHash": "TX-WRONG-MEMO", "paymentId": "VEC-MEMO" },
+          "txByHash": {
+            "TX-WRONG-MEMO": {
+              "validated": true,
+              "TransactionType": "Payment",
+              "Account": "rPAYER-E",
+              "Destination": "rDEST-E",
+              "Amount": "2500000",
+              "memoPaymentId": "VEC-MEMO-OTHER"
+            }
+          },
+          "expect": { "errorCode": "invalid_memo" }
+        }
+      ]
+    },
+    {
+      "id": "wrong_amount",
+      "description": "Amount mismatch is rejected",
+      "challenge": {
+        "network": "xrpl:testnet",
+        "amount": "2.5",
+        "asset": { "kind": "XRP" },
+        "destination": "rDEST-F",
+        "expiresAt": "2099-01-01T00:00:00Z",
+        "paymentId": "VEC-AMOUNT"
+      },
+      "steps": [
+        {
+          "receipt": { "network": "xrpl:testnet", "txHash": "TX-WRONG-AMOUNT", "paymentId": "VEC-AMOUNT" },
+          "txByHash": {
+            "TX-WRONG-AMOUNT": {
+              "validated": true,
+              "TransactionType": "Payment",
+              "Account": "rPAYER-F",
+              "Destination": "rDEST-F",
+              "Amount": "2500001",
+              "memoPaymentId": "VEC-AMOUNT"
+            }
+          },
+          "expect": { "errorCode": "invalid_amount" }
+        }
+      ]
+    },
+    {
+      "id": "reject_path_fields",
+      "description": "Path fields are rejected in v1 safe mode",
+      "challenge": {
+        "network": "xrpl:testnet",
+        "amount": "3.0",
+        "asset": { "kind": "XRP" },
+        "destination": "rDEST-G",
+        "expiresAt": "2099-01-01T00:00:00Z",
+        "paymentId": "VEC-PATHS"
+      },
+      "steps": [
+        {
+          "receipt": { "network": "xrpl:testnet", "txHash": "TX-PATHS", "paymentId": "VEC-PATHS" },
+          "txByHash": {
+            "TX-PATHS": {
+              "validated": true,
+              "TransactionType": "Payment",
+              "Account": "rPAYER-G",
+              "Destination": "rDEST-G",
+              "Amount": "3000000",
+              "memoPaymentId": "VEC-PATHS",
+              "Paths": [{}]
+            }
+          },
+          "expect": { "errorCode": "invalid_asset" }
+        }
+      ]
+    },
+    {
+      "id": "reject_partial_payment",
+      "description": "Partial payment flag is rejected",
+      "challenge": {
+        "network": "xrpl:testnet",
+        "amount": "3.0",
+        "asset": { "kind": "XRP" },
+        "destination": "rDEST-H",
+        "expiresAt": "2099-01-01T00:00:00Z",
+        "paymentId": "VEC-PARTIAL"
+      },
+      "steps": [
+        {
+          "receipt": { "network": "xrpl:testnet", "txHash": "TX-PARTIAL", "paymentId": "VEC-PARTIAL" },
+          "txByHash": {
+            "TX-PARTIAL": {
+              "validated": true,
+              "TransactionType": "Payment",
+              "Account": "rPAYER-H",
+              "Destination": "rDEST-H",
+              "Amount": "3000000",
+              "memoPaymentId": "VEC-PARTIAL",
+              "Flags": 131072
+            }
+          },
+          "expect": { "errorCode": "invalid_asset" }
+        }
+      ]
+    },
+    {
+      "id": "invalid_receipt_header",
+      "description": "Malformed base64 receipt header is rejected",
+      "challenge": {
+        "network": "xrpl:testnet",
+        "amount": "1.0",
+        "asset": { "kind": "XRP" },
+        "destination": "rDEST-I",
+        "expiresAt": "2099-01-01T00:00:00Z",
+        "paymentId": "VEC-BAD-RECEIPT"
+      },
+      "steps": [
+        {
+          "receiptRaw": "not-base64",
+          "txByHash": {},
+          "expect": { "errorCode": "invalid_receipt" }
+        }
+      ]
+    }
+  ]
+}
